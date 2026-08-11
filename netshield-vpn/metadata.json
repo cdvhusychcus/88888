@@ -1,0 +1,6 @@
+{
+  "name": "NetShield VPN",
+  "description": "High-speed, secure Android VPN application with global server nodes, real-time traffic monitoring, speed test, and protocol settings.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
