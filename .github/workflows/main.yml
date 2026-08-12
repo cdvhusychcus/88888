@@ -1,128 +1,67 @@
-name: Build NetShield VPN APK
+name: Build APK
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  build-apk:
-    name: Build Android APK
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 拉取代码
-      - name: Checkout
+      - name: 拉取代码
         uses: actions/checkout@v4
 
-      # 2. JDK 17
-      - name: Setup JDK 17
+      - name: 配置 JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
 
-      # 3. Android SDK
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      # 4. 安装 Android SDK
-      - name: Install Android SDK
+      - name: 生成 .env 文件（如不使用 Gemini API 可留空）
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-36"
-          sdkmanager "build-tools;36.0.0"
+          echo "# GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
 
-      # 5. Gradle 9.3.1
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+      - name: 生成 Gradle Wrapper（项目本身未包含 gradlew）
+        uses: gradle/actions/wrapper-validation@v4
+        continue-on-error: true
+
+      - name: 安装 Gradle 并生成 wrapper
+        run: |
+          # 如果仓库里没有 gradlew，用系统安装的 gradle 生成一份
+          if [ ! -f "./gradlew" ]; then
+            sudo apt-get update && sudo apt-get install -y gradle
+            gradle wrapper --gradle-version 8.13
+          fi
+          chmod +x ./gradlew
+
+      - name: 缓存 Gradle 依赖
+        uses: actions/cache@v4
         with:
-          gradle-version: '9.3.1'
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
 
-      # 6. 创建 APK 签名文件
-      - name: Prepare signing keystore
-        run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
-          else
-            keytool -genkeypair \
-              -v \
-              -keystore my-upload-key.jks \
-              -alias upload \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass android \
-              -keypass android \
-              -dname "CN=NetShield VPN, OU=Android, O=NetShield, L=Unknown, S=Unknown, C=US"
-          fi
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      - name: 构建 Debug APK
+        run: ./gradlew assembleDebug --stacktrace
 
-      # 7. 配置签名环境变量
-      - name: Set signing environment
-        run: |
-          echo "KEYSTORE_PATH=$PWD/my-upload-key.jks" >> "$GITHUB_ENV"
+      # 如果需要签名的 Release APK，取消下面注释，并在仓库 Secrets 中配置
+      # KEYSTORE_BASE64 / STORE_PASSWORD / KEY_PASSWORD
+      # - name: 还原签名 keystore
+      #   run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
+      # - name: 构建 Release APK
+      #   env:
+      #     KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+      #     STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+      #     KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      #   run: ./gradlew assembleRelease --stacktrace
 
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "STORE_PASSWORD=$STORE_PASSWORD_SECRET" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=$KEY_PASSWORD_SECRET" >> "$GITHUB_ENV"
-          else
-            echo "STORE_PASSWORD=android" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=android" >> "$GITHUB_ENV"
-          fi
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          STORE_PASSWORD_SECRET: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD_SECRET: ${{ secrets.KEY_PASSWORD }}
-
-      # 8. 创建 .env
-      - name: Prepare environment file
-        run: |
-          if [ -n "$GEMINI_API_KEY" ]; then
-            echo "GEMINI_API_KEY=$GEMINI_API_KEY" > .env
-          else
-            echo "GEMINI_API_KEY=MY_GEMINI_API_KEY" > .env
-          fi
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-
-      # 9. 查看项目文件
-      - name: Check project
-        run: |
-          echo "Current directory:"
-          pwd
-
-          echo "Project files:"
-          ls -la
-
-          echo "App directory:"
-          ls -la app
-
-          echo "Environment file:"
-          cat .env | sed 's/GEMINI_API_KEY=.*/GEMINI_API_KEY=***HIDDEN***/'
-
-      # 10. 构建 Release APK
-      - name: Build Release APK
-        run: |
-          gradle :app:assembleRelease --stacktrace
-
-      # 11. 查找 APK
-      - name: Find APK
-        run: |
-          echo "APK files:"
-          find app/build/outputs/apk -type f -name "*.apk" -print
-
-      # 12. 上传 APK
-      - name: Upload APK
+      - name: 上传 APK 产物
         uses: actions/upload-artifact@v4
         with:
-          name: NetShield-VPN-APK
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: error
+          name: netshield-vpn-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
