@@ -1,0 +1,68 @@
+name: Build Any Web to APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 检出源码
+      uses: actions/checkout@v4
+
+    - name: 配置 Node.js 环境
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: 配置 JDK 17
+      uses: actions/setup-java@v5
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: 自动补全前端环境并构建
+      run: |
+        if [ ! -f "package.json" ]; then
+          echo "未发现 package.json，正在自动初始化..."
+          npm init -y
+        else
+          npm install
+          npm run build --if-present
+        fi
+
+    - name: 注入原生安卓外壳 (Capacitor)
+      run: |
+        npm install @capacitor/core @capacitor/cli @capacitor/android
+        
+        # 查找或自动整理网页目录，避开 Capacitor 的 "." 目录限制
+        if [ -d "dist" ]; then 
+          WEB_DIR="dist"
+        elif [ -d "build" ]; then 
+          WEB_DIR="build"
+        else
+          echo "未检测到打包目录，正在自动整理资源到 www 文件夹..."
+          mkdir -p www
+          # 同步网页文件到 www，同时排除掉无关的系统环境文件夹
+          rsync -av --exclude='www' --exclude='node_modules' --exclude='.git' --exclude='android' ./ www/
+          WEB_DIR="www"
+        fi
+        
+        npx cap init "MyApp" "com.example.myapp" --web-dir $WEB_DIR
+        npx cap add android
+        npx cap sync android
+
+    - name: 编译 Android APK
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew assembleDebug
+
+    - name: 上传 APK 供下载
+      uses: actions/upload-artifact@v4
+      with:
+        name: my-app-apk
+        path: "android/app/build/outputs/apk/debug/*.apk"
