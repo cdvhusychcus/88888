@@ -1,0 +1,120 @@
+name: Build NetShield VPN APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 拉取项目代码
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. 配置 JDK 17
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 3. 配置 Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 4. 安装项目需要的 Android SDK
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-36"
+          sdkmanager "build-tools;36.0.0"
+
+      # 5. 安装 Gradle 9.3.1
+      # AGP 9.1.1 官方兼容 Gradle 9.3.1
+      - name: Setup Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: '9.3.1'
+
+      # 6. 创建 Release 所需的密钥文件
+      # 注意：
+      # 你的 app/build.gradle.kts 明确要求：
+      # KEYSTORE_PATH
+      # STORE_PASSWORD
+      # KEY_PASSWORD
+      #
+      # 如果 GitHub Secrets 中没有上传正式签名密钥，
+      # 这里自动生成一个临时 keystore，仅用于构建 APK。
+      - name: Prepare signing keystore
+        run: |
+          if [ -n "${KEYSTORE_BASE64}" ]; then
+            echo "${KEYSTORE_BASE64}" | base64 --decode > my-upload-key.jks
+          else
+            keytool -genkeypair \
+              -v \
+              -keystore my-upload-key.jks \
+              -alias upload \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=NetShield VPN, OU=Android, O=NetShield, L=Unknown, S=Unknown, C=US"
+          fi
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+      # 7. 配置签名参数
+      - name: Set signing environment
+        run: |
+          if [ -n "${KEYSTORE_BASE64}" ]; then
+            echo "Using GitHub Secrets keystore"
+            echo "KEYSTORE_PATH=$PWD/my-upload-key.jks" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=${STORE_PASSWORD_SECRET}" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET}" >> "$GITHUB_ENV"
+          else
+            echo "Using temporary CI keystore"
+            echo "KEYSTORE_PATH=$PWD/my-upload-key.jks" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=android" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=android" >> "$GITHUB_ENV"
+          fi
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD_SECRET: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD_SECRET: ${{ secrets.KEY_PASSWORD }}
+
+      # 8. 如果没有 .env，就创建一个
+      # 你的项目使用 Secrets Gradle Plugin，并默认读取 .env.example
+      - name: Prepare environment file
+        run: |
+          if [ ! -f .env ]; then
+            cp .env.example .env
+          fi
+
+      # 9. 构建 Release APK
+      - name: Build Release APK
+        run: |
+          gradle :app:assembleRelease --stacktrace
+
+      # 10. 显示生成的 APK
+      - name: Show APK
+        run: |
+          find app/build/outputs/apk -type f -name "*.apk" -print
+
+      # 11. 上传 APK
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetShield-VPN-APK
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
