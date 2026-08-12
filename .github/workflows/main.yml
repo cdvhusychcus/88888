@@ -25,26 +25,17 @@ jobs:
         run: |
           echo "# GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
 
-      - name: 生成 Gradle Wrapper（项目本身未包含 gradlew）
-        uses: gradle/actions/wrapper-validation@v4
-        continue-on-error: true
+      - name: 安装可控版本的 Gradle（官方 action，自带缓存）
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.13
 
-      - name: 安装 Gradle 并生成 wrapper
+      - name: 生成 Gradle Wrapper（项目本身未包含 gradlew）
         run: |
-          # 如果仓库里没有 gradlew，用系统安装的 gradle 生成一份
           if [ ! -f "./gradlew" ]; then
-            sudo apt-get update && sudo apt-get install -y gradle
             gradle wrapper --gradle-version 8.13
           fi
           chmod +x ./gradlew
-
-      - name: 缓存 Gradle 依赖
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
 
       - name: 构建 Debug APK
         run: ./gradlew assembleDebug --stacktrace
