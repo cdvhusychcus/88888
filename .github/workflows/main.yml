@@ -21,6 +21,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: 生成 .env 文件（如不使用 Gemini API 可留空）
+        run: |
+          echo "# GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
+
       - name: 安装可控版本的 Gradle（官方 action，自带缓存）
         uses: gradle/actions/setup-gradle@v4
         with:
