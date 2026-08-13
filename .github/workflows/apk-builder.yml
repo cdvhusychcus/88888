@@ -27,24 +27,23 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Initialize Environment Variables
-        working-directory: ./netshield-vpn  # 指示在此目录下执行
+        working-directory: ./netshield-vpn  # 必须添加
         run: |
-          # 直接创建一个空的 .env 文件以满足依赖
           touch .env
 
       - name: Grant execute permission for gradlew
-        working-directory: ./netshield-vpn  # 指示在此目录下执行
+        working-directory: ./netshield-vpn  # 必须添加：解决当前报错的关键
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        working-directory: ./netshield-vpn  # 指示在此目录下执行
+        working-directory: ./netshield-vpn  # 必须添加
         run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: netshield-vpn-debug-apk
-          # 注意：这里的打包路径也需要加上子目录前缀
+          # 必须修改：提取产物时需包含子目录路径
           path: netshield-vpn/app/build/outputs/apk/debug/*.apk
           retention-days: 7
 
